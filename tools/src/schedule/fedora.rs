@@ -33,6 +33,12 @@ pub async fn sync(http: &http::Client, sync: &PkgsSync) -> Result<Vec<PkgGroup>>
                     continue;
                 }
 
+                // filter different architectures as rebuilderd cannot handle different
+                // architectures in the same repository.
+                if pkg.arch != *arch {
+                    continue;
+                }
+
                 let url = format!("{url}{}", pkg.location.href);
                 let version = format!("{}-{}", pkg.version.ver, pkg.version.rel);
                 let artifact = PkgArtifact {
