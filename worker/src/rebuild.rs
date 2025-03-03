@@ -9,6 +9,7 @@ use rebuilderd_common::api::{BuildStatus, Rebuild};
 use rebuilderd_common::errors::Context as _;
 use rebuilderd_common::errors::*;
 use rebuilderd_common::PkgArtifact;
+use serde_json;
 use std::collections::HashMap;
 use std::fs;
 use std::io::ErrorKind;
@@ -33,6 +34,36 @@ fn path_to_string(path: &Path) -> Result<String> {
         .to_str()
         .with_context(|| anyhow!("Path contains invalid characters: {:?}", path))?;
     Ok(s.to_string())
+}
+
+// Read cache/build/nano-8.1-1.fc41/rebuild/comparison.json
+// All empty values means it is reproducible (as here is no rpmdiff result)
+pub fn compare_fedora(build_artifact: &Path) -> Result<bool> {
+    let Some(rebuild_dir) = build_artifact.parent() else {
+        return Ok(false);
+    };
+
+    let comparison_file = rebuild_dir.join("comparison.json");
+
+    if !comparison_file.exists() {
+        return Ok(false);
+    }
+
+    let Ok(data) = fs::read_to_string(comparison_file) else {
+        return Ok(false);
+    };
+
+    let Ok(serde_json::Value::Object(object)) = serde_json::from_str(&data) else {
+        return Ok(false);
+    };
+
+    for value in object.values() {
+        if value != &serde_json::Value::String("".to_string()) {
+            return Ok(false);
+        }
+    }
+
+    Ok(true)
 }
 
 pub async fn compare_files(a: &Path, b: &Path) -> Result<bool> {
@@ -163,7 +194,7 @@ pub async fn rebuild(ctx: &Context<'_>, log: &mut Vec<u8>) -> Result<Vec<(PkgArt
                 output_path
             );
             Rebuild::new(BuildStatus::Bad)
-        } else if compare_files(&artifact_path, &output_path).await? {
+        } else if compare_fedora(&output_path)? {
             info!(
                 "Output artifacts is identical, marking as GOOD: {:?}",
                 output_path
